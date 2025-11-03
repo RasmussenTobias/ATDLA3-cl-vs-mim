@@ -92,6 +92,12 @@ def get_dataset_config(dataset_name):
             "mean": [0.485, 0.456, 0.406], 
             "std": [0.229, 0.224, 0.225]
         },
+        "cifar100": {
+            "data_dir": "./data/cifar-100-python",
+            "num_classes": 100,
+            "mean": [0.485, 0.456, 0.406], 
+            "std": [0.229, 0.224, 0.225]
+        },
         "imagenet": {
             "data_dir": "./data/imagenet",
             "num_classes": 1000,
@@ -101,6 +107,6 @@ def get_dataset_config(dataset_name):
     }
     
     if dataset_name not in configs:
-        raise ValueError(f"Dataset '{dataset_name}' not supported. Available: {list(configs.keys())}")
+        raise ValueError(f"Unsupported dataset: {dataset_name}. Supported: {list(configs.keys())}")
     
     return configs[dataset_name]
