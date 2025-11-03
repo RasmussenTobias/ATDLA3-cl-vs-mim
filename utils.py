@@ -12,8 +12,6 @@ import torch
 
 
 # %%
-
-
 def subsample(dataset, ratio, random=False):
     """
     Get indices of subsampled dataset with given ratio.
@@ -39,6 +37,7 @@ def subsample(dataset, ratio, random=False):
 
 
 # %%
+
 
 
 def download(url, path, force=False):
@@ -77,3 +76,31 @@ def restore(xs, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
     mean, std = mean.reshape([1, 3, 1, 1]), std.reshape([1, 3, 1, 1])
     return torch.clamp((xs * std) + mean, min=0.0, max=1.0)
 
+# %%
+def get_dataset_config(dataset_name):
+    """Get dataset-specific configuration"""
+    configs = {
+        "flowers102": {
+            "data_dir": "./data/flowers102/dataset",
+            "num_classes": 102,
+            "mean": [0.485, 0.456, 0.406],
+            "std": [0.229, 0.224, 0.225]
+        },
+        "cifar10": {
+            "data_dir": "./data/cifar10",
+            "num_classes": 10,
+            "mean": [0.485, 0.456, 0.406], 
+            "std": [0.229, 0.224, 0.225]
+        },
+        "imagenet": {
+            "data_dir": "./data/imagenet",
+            "num_classes": 1000,
+            "mean": [0.485, 0.456, 0.406],
+            "std": [0.229, 0.224, 0.225]
+        }
+    }
+    
+    if dataset_name not in configs:
+        raise ValueError(f"Dataset '{dataset_name}' not supported. Available: {list(configs.keys())}")
+    
+    return configs[dataset_name]

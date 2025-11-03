@@ -13,26 +13,39 @@ from transformers import ViTForImageClassification
 from tqdm import tqdm
 import os
 import json
+import pandas as pd  # Added for CSV export
+from models.lora_vit import apply_lora_to_vit
+from utils import get_dataset_config
 
 
-
-def train():
+def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lora_dropout=0.1):
     # with open("data/flowers102/cat_to_name.json", "r") as f:
     #     cat_to_name = json.load(f)
+    dataset_config = get_dataset_config(dataset_name)
+    data_dir = dataset_config["data_dir"]
+    num_classes = dataset_config["num_classes"]
 
-
-    data_dir = "./data/flowers102/dataset"
-    num_classes = 102
-    batch_size = 4
+    mean = dataset_config["mean"]
+    std = dataset_config["std"]
+    
+    batch_size = 64
     num_epochs = 30
     lr = 5e-5
     weight_decay = 0.05
     device = "cuda" if torch.cuda.is_available() else "mps"
+    
     checkpoint_dir = "./checkpoints"
     os.makedirs(checkpoint_dir, exist_ok=True)
+    
+    method = "lora" if use_lora else "full"
+    method_dir = os.path.join(checkpoint_dir, dataset_name, method)
+    os.makedirs(method_dir, exist_ok=True)
+    
+    print(f"Training on {dataset_name} dataset with {method} fine-tuning")
+    print(f"Dataset: {num_classes} classes")
 
-    mean = [0.485, 0.456, 0.406]
-    std  = [0.229, 0.224, 0.225]
+    # Initialize training history
+    training_history = []
 
     train_transform = transforms.Compose([
         transforms.Resize(256),
@@ -49,8 +62,16 @@ def train():
         transforms.Normalize(mean, std)
     ])
 
-    train_dataset = datasets.ImageFolder(os.path.join(data_dir, "train"), transform=train_transform)
-    val_dataset   = datasets.ImageFolder(os.path.join(data_dir, "valid"), transform=val_transform)
+    # Load datasets
+    if dataset_name == "cifar10":
+        train_dataset = datasets.CIFAR10(root=data_dir, train=True, download=True, transform=train_transform)
+        val_dataset = datasets.CIFAR10(root=data_dir, train=False, download=True, transform=val_transform)
+    elif dataset_name == "flowers102":
+        train_dataset = datasets.ImageFolder(os.path.join(data_dir, "train"), transform=train_transform)
+        val_dataset = datasets.ImageFolder(os.path.join(data_dir, "valid"), transform=val_transform)
+    else:
+        raise ValueError(f"Unsupported dataset: {dataset_name}")
+
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     val_loader   = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
@@ -61,11 +82,21 @@ def train():
         num_labels=num_classes,
         ignore_mismatched_sizes=True
     )
+    if use_lora:
+        print(f"Using LoRA fine-tuning (r={lora_r}, alpha={lora_alpha})")
+        trainable_params = apply_lora_to_vit(model, r=lora_r, alpha=lora_alpha, dropout=lora_dropout)
+        optimizer = optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
+        print(f"Training {len(trainable_params)} LoRA parameters")
+    else:
+        print("Using full fine-tuning")
+        optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f"Training {total_params:,} parameters")
+
     model = model.to(device)
 
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
     def train_one_epoch(model, loader, optimizer, criterion, device):
@@ -107,24 +138,92 @@ def train():
         print(f"\nEpoch {epoch+1}/{num_epochs}")
         train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, device)
         val_loss, val_acc = validate(model, val_loader, criterion, device)
+        
+        current_lr = scheduler.get_last_lr()[0]
         scheduler.step()
         
         print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}")
         print(f"Val   Loss: {val_loss:.4f} | Val   Acc: {val_acc:.4f}")
+        print(f"Learning Rate: {current_lr:.2e}")
+
+        #Save every epoch
+        epoch_data = {
+            'epoch': epoch + 1,
+            'train_loss': train_loss,
+            'train_acc': train_acc,
+            'val_loss': val_loss,
+            'val_acc': val_acc,
+            'learning_rate': current_lr,
+            'dataset': dataset_name,
+            'method': method,
+            'is_best': val_acc > best_acc
+        }
+        training_history.append(epoch_data)
         
-        # Save checkpoint if validation improves
+        history_file = os.path.join(method_dir, f"training_history_{dataset_name}_{method}.json")
+        with open(history_file, 'w') as f:
+            json.dump(training_history, f, indent=2)
+        
+        df = pd.DataFrame(training_history)
+        csv_file = os.path.join(method_dir, f"training_history_{dataset_name}_{method}.csv")
+        df.to_csv(csv_file, index=False)
+        
+        #Best epoch
         if val_acc > best_acc:
             best_acc = val_acc
+            checkpoint_name = f"best_checkpoint_{dataset_name}_{method}.pth"
             torch.save({
                 'epoch': epoch + 1,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
                 'val_acc': val_acc,
-            }, os.path.join(checkpoint_dir, "best_checkpoint.pth"))
-            print(f"Checkpoint saved at epoch {epoch+1} with val_acc {val_acc:.4f}")
+                'dataset': dataset_name,
+                'method': method,
+                'lora_config': {'r': lora_r, 'alpha': lora_alpha, 'dropout': lora_dropout} if use_lora else None,
+                'training_history': training_history
+            }, os.path.join(method_dir, checkpoint_name))
+            print(f"Checkpoint saved at epoch {epoch+1} with val_acc {val_acc:.4f}")       
 
     print(f"\nTraining complete! Best validation accuracy: {best_acc:.4f}")
     
+    # Save final training summary
+    summary = {
+        'dataset': dataset_name,
+        'method': method,
+        'best_val_acc': best_acc,
+        'total_epochs': num_epochs,
+        'final_train_acc': training_history[-1]['train_acc'],
+        'final_val_acc': training_history[-1]['val_acc'],
+        'config': {
+            'batch_size': batch_size,
+            'lr': lr,
+            'weight_decay': weight_decay,
+            'lora_r': lora_r if use_lora else None,
+            'lora_alpha': lora_alpha if use_lora else None,
+            'lora_dropout': lora_dropout if use_lora else None
+        }
+    }
     
+    summary_file = os.path.join(method_dir, f"training_summary_{dataset_name}_{method}.json")
+    with open(summary_file, 'w') as f:
+        json.dump(summary, f, indent=2)
+
+    
+#To run main under different configurations: 
+#python train.py
+#python train.py --dataset cifar10 --use_lora False <- run full fine-tuning on cifar10
+#python train.py --dataset flowers102 --use_lora True  <- run LoRA fine-tuning on flowers102
 if __name__ == "__main__":
-    train()
+    import argparse
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", default="flowers102", choices=["flowers102", "cifar10"])
+    parser.add_argument("--use_lora", action="store_true", help="Use LoRA fine-tuning")
+    parser.add_argument("--lora_r", type=int, default=8)
+    parser.add_argument("--lora_alpha", type=int, default=16)
+    
+    args = parser.parse_args()
+    
+    train(dataset_name=args.dataset, use_lora=args.use_lora, 
+          lora_r=args.lora_r, lora_alpha=args.lora_alpha)
