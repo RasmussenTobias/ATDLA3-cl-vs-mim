@@ -82,6 +82,31 @@ def print_model_structure(model, prefix="", max_depth=3, current_depth=0):
             print(f"Module: {full_name}")
             print_model_structure(child, full_name, max_depth, current_depth + 1)
 
+def count_lora_parameters(model):
+    """Count LoRA and trainable parameters separately"""
+    lora_params = 0
+    classifier_params = 0
+    total_trainable = 0
+    
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            total_trainable += param.numel()
+            if 'A' in name or 'B' in name:
+                lora_params += param.numel()
+                print(f"LoRA param: {name} -> {param.numel()} parameters")
+            elif 'classifier' in name:
+                classifier_params += param.numel()
+                print(f"Classifier param: {name} -> {param.numel()} parameters")
+            else:
+                print(f"Other trainable param: {name} -> {param.numel()} parameters")
+    
+    print(f"\n📊 Parameter Summary:")
+    print(f"   LoRA parameters: {lora_params:,}")
+    print(f"   Classifier parameters: {classifier_params:,}")
+    print(f"   Total trainable: {total_trainable:,}")
+    
+    return lora_params, classifier_params, total_trainable
+
 @contextmanager
 def only_lora_and_head(model):
     # ensure grads are only flowing to adapters + head

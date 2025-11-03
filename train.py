@@ -88,8 +88,13 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
     if use_lora:
         print(f"Using LoRA fine-tuning (r={lora_r}, alpha={lora_alpha})")
         trainable_params = apply_lora_to_vit(model, r=lora_r, alpha=lora_alpha, dropout=lora_dropout)
+        
+        from models.lora_vit import count_lora_parameters
+        lora_count, classifier_count, total_count = count_lora_parameters(model)
+        
         optimizer = optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
-        print(f"Training {len(trainable_params)} LoRA parameters")
+        print(f"Training {len(trainable_params)} LoRA parameter tensors")
+        print(f"Total trainable parameter count: {total_count:,}")
     else:
         print("Using full fine-tuning")
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
