@@ -30,8 +30,8 @@ class LoRALinear(nn.Module):
         if self.bias is not None:
             out = out + self.bias
         # lora path
-        lora = self.dropout(x) @ self.A.t()    # [*, r]
-        lora = lora @ self.B.t()               # [*, out_features]
+        lora = self.dropout(x) @ self.A.t()
+        lora = lora @ self.B.t()
         return out + self.scale * lora
 
 def _replace_linear_with_lora(module: nn.Module, names, r=8, alpha=16, dropout=0.0):
@@ -44,16 +44,13 @@ def _replace_linear_with_lora(module: nn.Module, names, r=8, alpha=16, dropout=0
 
 def apply_lora_to_vit(model: nn.Module, r=8, alpha=16, dropout=0.0, target_modules=None):
     if target_modules is None:
-        # Default target modules for Hugging Face ViT
         target_modules = ['query', 'key', 'value', 'dense']
     
     print("Model structure before LoRA:")
     print_model_structure(model)
     
-    # swap target linears to LoRA
     _replace_linear_with_lora(model, target_modules, r=r, alpha=alpha, dropout=dropout)
 
-    # freeze everything first
     for p in model.parameters():
         p.requires_grad = False
 
@@ -100,16 +97,15 @@ def count_lora_parameters(model):
             else:
                 print(f"Other trainable param: {name} -> {param.numel()} parameters")
     
-    print(f"\n📊 Parameter Summary:")
-    print(f"   LoRA parameters: {lora_params:,}")
-    print(f"   Classifier parameters: {classifier_params:,}")
-    print(f"   Total trainable: {total_trainable:,}")
+    print(f"Parameter Summary:")
+    print(f"LoRA parameters: {lora_params:,}")
+    print(f"Classifier parameters: {classifier_params:,}")
+    print(f"Total trainable: {total_trainable:,}")
     
     return lora_params, classifier_params, total_trainable
 
 @contextmanager
 def only_lora_and_head(model):
-    # ensure grads are only flowing to adapters + head
     for n, p in model.named_parameters():
         if p.requires_grad and not any(k in n for k in ['A', 'B', 'classifier.weight', 'classifier.bias']):
             p.requires_grad = False

@@ -12,13 +12,54 @@ from transformers import ViTForImageClassification
 from tqdm import tqdm
 import os
 import json
-import pandas as pd  # Added for CSV export
-from models.lora_vit import apply_lora_to_vit
+import pandas as pd
+
 from utils import get_dataset_config
+from models.adapt_former import apply_adaptformer_to_vit, count_adaptformer_parameters
+from models.lora_vit import apply_lora_to_vit, count_lora_parameters
 
 
-def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lora_dropout=0.1, 
-          early_stopping=False, patience=5):
+def train_one_epoch(model, loader, optimizer, criterion, device):
+    model.train()
+    running_loss, correct, total = 0.0, 0, 0
+    for images, labels in tqdm(loader, desc="Training"):
+        images, labels = images.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(pixel_values=images).logits
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item() * images.size(0)
+        _, preds = torch.max(outputs, 1)
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+    epoch_loss = running_loss / total
+    epoch_acc = correct / total
+    return epoch_loss, epoch_acc
+
+def validate(model, loader, criterion, device):
+    model.eval()
+    running_loss, correct, total = 0.0, 0, 0
+    with torch.no_grad():
+        for images, labels in tqdm(loader, desc="Validation"):
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(pixel_values=images).logits
+            loss = criterion(outputs, labels)
+            running_loss += loss.item() * images.size(0)
+            _, preds = torch.max(outputs, 1)
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+    epoch_loss = running_loss / total
+    epoch_acc = correct / total
+    return epoch_loss, epoch_acc
+
+
+def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lora_dropout=0.1, use_adaptformer=False, bottleneck_dim=64, 
+          early_stopping=False, patience=10):
+    
+    if use_lora and use_adaptformer:
+        raise Exception(f"You can only apply one adapter-strategy at a time")
+    
     # with open("data/flowers102/cat_to_name.json", "r") as f:
     #     cat_to_name = json.load(f)
     dataset_config = get_dataset_config(dataset_name)
@@ -28,7 +69,7 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
     mean = dataset_config["mean"]
     std = dataset_config["std"]
     
-    batch_size = 64
+    batch_size = 4
     num_epochs = 100
     lr = 5e-5
     weight_decay = 0.05
@@ -46,7 +87,6 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
     if early_stopping:
         print(f"Early stopping enabled with patience: {patience}")
 
-    # Initialize training history
     training_history = []
 
     train_transform = transforms.Compose([
@@ -64,7 +104,6 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
         transforms.Normalize(mean, std)
     ])
 
-    # Load datasets
     if dataset_name == "cifar10":
         train_dataset = datasets.CIFAR10(root=data_dir, train=True, download=True, transform=train_transform)
         val_dataset = datasets.CIFAR10(root=data_dir, train=False, download=True, transform=val_transform)
@@ -89,12 +128,20 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
         print(f"Using LoRA fine-tuning (r={lora_r}, alpha={lora_alpha})")
         trainable_params = apply_lora_to_vit(model, r=lora_r, alpha=lora_alpha, dropout=lora_dropout)
         
-        from models.lora_vit import count_lora_parameters
-        lora_count, classifier_count, total_count = count_lora_parameters(model)
+        _, _, total_count = count_lora_parameters(model)
         
         optimizer = optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
         print(f"Training {len(trainable_params)} LoRA parameter tensors")
-        print(f"Total trainable parameter count: {total_count:,}")
+        print(f"Total trainable parameter count: {total_count:,}")    
+    elif use_adaptformer:
+        print("Using AdaptFormer fine-tuning")
+        trainable_params = apply_adaptformer_to_vit(model, bottleneck_dim=bottleneck_dim)
+        
+        _, _, total_count = count_adaptformer_parameters(model)
+        
+        optimizer = optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
+        print(f"Training {len(trainable_params)} AdaptFormer parameter tensors")
+        print(f"Total trainable parameter count: {total_count:,}")  
     else:
         print("Using full fine-tuning")
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -106,41 +153,6 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
     criterion = nn.CrossEntropyLoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
-    def train_one_epoch(model, loader, optimizer, criterion, device):
-        model.train()
-        running_loss, correct, total = 0.0, 0, 0
-        for images, labels in tqdm(loader, desc="Training"):
-            images, labels = images.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(pixel_values=images).logits
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item() * images.size(0)
-            _, preds = torch.max(outputs, 1)
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
-        epoch_loss = running_loss / total
-        epoch_acc = correct / total
-        return epoch_loss, epoch_acc
-
-    def validate(model, loader, criterion, device):
-        model.eval()
-        running_loss, correct, total = 0.0, 0, 0
-        with torch.no_grad():
-            for images, labels in tqdm(loader, desc="Validation"):
-                images, labels = images.to(device), labels.to(device)
-                outputs = model(pixel_values=images).logits
-                loss = criterion(outputs, labels)
-                running_loss += loss.item() * images.size(0)
-                _, preds = torch.max(outputs, 1)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
-        epoch_loss = running_loss / total
-        epoch_acc = correct / total
-        return epoch_loss, epoch_acc
-
-    # Early stopping variables
     best_acc = 0.0
     epochs_without_improvement = 0
     
@@ -214,8 +226,8 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
         'dataset': dataset_name,
         'method': method,
         'best_val_acc': best_acc,
-        'total_epochs': len(training_history),  # Actual epochs run (may be less with early stopping)
-        'max_epochs': num_epochs,  # Maximum epochs configured
+        'total_epochs': len(training_history),
+        'max_epochs': num_epochs,
         'early_stopping_used': early_stopping,
         'patience': patience if early_stopping else None,
         'stopped_early': len(training_history) < num_epochs if early_stopping else False,
@@ -238,8 +250,8 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
     
 # To run main under different configurations: 
 # python train.py
-# python train.py --dataset cifar10 --use_lora False <- run full fine-tuning on cifar10
-# python train.py --dataset flowers102 --use_lora True  <- run LoRA fine-tuning on flowers102
+# python train.py --dataset cifar10 <- run full fine-tuning on cifar10
+# python train.py --dataset flowers102 --use_lora  <- run LoRA fine-tuning on flowers102
 # python train.py --dataset cifar10 --early_stopping --patience 7 <- with early stopping
 if __name__ == "__main__":
     import argparse
@@ -247,6 +259,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="flowers102", choices=["flowers102", "cifar10", "cifar100"])
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA fine-tuning")
+    parser.add_argument("--use_adaptformer", action="store_true", help="Use AdaptFormer for fine-tuning")
+    parser.add_argument("--bottleneck_dim", type=int, default=64, help="Bottleneck dimension for Adapt-former")
     parser.add_argument("--lora_r", type=int, default=8)
     parser.add_argument("--lora_alpha", type=int, default=16)
     parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
@@ -254,6 +268,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    train(dataset_name=args.dataset, use_lora=args.use_lora, 
-          lora_r=args.lora_r, lora_alpha=args.lora_alpha,
-          early_stopping=args.early_stopping, patience=args.patience)
+    train(dataset_name=args.dataset,                                                    # Dataset
+          use_lora=args.use_lora, lora_r=args.lora_r, lora_alpha=args.lora_alpha,       # LoRA arguments
+          use_adaptformer=args.use_adaptformer, bottleneck_dim=args.bottleneck_dim,     # AdaptFormer arguments
+          early_stopping=args.early_stopping, patience=args.patience)                   # Early stopping arguments
