@@ -1,0 +1,11 @@
+Metric,Value
+Dataset,CIFAR100
+Method,BITFIT
+Total Epochs,42
+Best Val Accuracy (%),86.45
+Best Epoch,42
+Final Train Accuracy (%),79.38
+Final Val Accuracy (%),86.45
+Final Train Loss,0.7197
+Final Val Loss,0.4409
+Train-Val Gap (%),-7.07

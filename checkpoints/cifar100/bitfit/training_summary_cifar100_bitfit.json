@@ -1,0 +1,20 @@
+{
+  "dataset": "cifar100",
+  "method": "bitfit",
+  "best_val_acc": 0.8645,
+  "total_epochs": 52,
+  "max_epochs": 100,
+  "early_stopping_used": true,
+  "patience": 10,
+  "stopped_early": true,
+  "final_train_acc": 0.80054,
+  "final_val_acc": 0.8635,
+  "config": {
+    "batch_size": 64,
+    "lr": 5e-05,
+    "weight_decay": 0.05,
+    "lora_r": null,
+    "lora_alpha": null,
+    "lora_dropout": null
+  }
+}

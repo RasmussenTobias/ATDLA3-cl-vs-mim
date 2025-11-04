@@ -12,8 +12,8 @@ from transformers import ViTForImageClassification
 from tqdm import tqdm
 import os
 import json
-import pandas as pd
-
+import pandas as pd  # Added for CSV export
+from models.bitfit_vit import apply_bitfit_to_vit, bitfit_param_groups
 from utils import get_dataset_config
 from models.adapt_former import apply_adaptformer_to_vit, count_adaptformer_parameters
 from models.lora_vit import apply_lora_to_vit, count_lora_parameters
@@ -55,11 +55,7 @@ def validate(model, loader, criterion, device):
 
 
 def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lora_dropout=0.1, use_adaptformer=False, bottleneck_dim=64, 
-          early_stopping=False, patience=10):
-    
-    if use_lora and use_adaptformer:
-        raise Exception(f"You can only apply one adapter-strategy at a time")
-    
+          early_stopping=False, patience=10, use_bitfit=False):
     # with open("data/flowers102/cat_to_name.json", "r") as f:
     #     cat_to_name = json.load(f)
     dataset_config = get_dataset_config(dataset_name)
@@ -78,7 +74,7 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
     checkpoint_dir = "./checkpoints"
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    method = "lora" if use_lora else "adaptformer" if use_adaptformer else "full"
+    method = "lora" if use_lora else "adaptformer" if use_adaptformer else "bitfit" if use_bitfit else"full"
 
     method_dir = os.path.join(checkpoint_dir, dataset_name, method)
     os.makedirs(method_dir, exist_ok=True)
@@ -143,6 +139,23 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
         optimizer = optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
         print(f"Training {len(trainable_params)} AdaptFormer parameter tensors")
         print(f"Total trainable parameter count: {total_count:,}")  
+
+    elif use_bitfit:
+        print(f"Using BitFit fine-tuning")
+        trainable_params = apply_bitfit_to_vit(model, tune_layernorm_bias=True, tune_mlp_bias=True, tune_attn_bias=True, tune_classifier=True, verbose=True)
+        no_decay_groups, decay_group = bitfit_param_groups(trainable_params)
+        
+        param_groups = []
+        if len(no_decay_groups["params"]) > 0:
+            param_groups.append(no_decay_groups)
+        if len(decay_group["params"]) > 0:
+            decay_group.setdefault("weight_decay", weight_decay)
+            param_groups.append(decay_group)
+
+        optimizer = optim.AdamW(param_groups, lr=lr, weight_decay=0)
+        total_params = sum(p.numel() for p in trainable_params)
+        print(f"Training {total_params:,} parameters across {len(trainable_params)} tensors")
+
     else:
         print("Using full fine-tuning")
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -262,14 +275,19 @@ if __name__ == "__main__":
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA fine-tuning")
     parser.add_argument("--use_adaptformer", action="store_true", help="Use AdaptFormer for fine-tuning")
     parser.add_argument("--bottleneck_dim", type=int, default=64, help="Bottleneck dimension for Adapt-former")
+    parser.add_argument("--use_bitfit", action="store_true", help="Use BitFit fine-tuning")
     parser.add_argument("--lora_r", type=int, default=8)
     parser.add_argument("--lora_alpha", type=int, default=16)
     parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
     parser.add_argument("--patience", type=int, default=5, help="Early stopping patience (epochs)")
     
     args = parser.parse_args()
+
+    if (args.use_lora and args.use_bitfit) or (args.use_lora and  args.use_adaptformer) or (args.use_bitfit and args.use_adaptformer):
+        raise SystemExit("Choose either --use_lora, --use_bitfit or --use_adaptformer (not multiple)")
     
     train(dataset_name=args.dataset,                                                    # Dataset
           use_lora=args.use_lora, lora_r=args.lora_r, lora_alpha=args.lora_alpha,       # LoRA arguments
           use_adaptformer=args.use_adaptformer, bottleneck_dim=args.bottleneck_dim,     # AdaptFormer arguments
+          use_bitfit=args.use_bitfit,                                                   # BitFit arguments
           early_stopping=args.early_stopping, patience=args.patience)                   # Early stopping arguments
