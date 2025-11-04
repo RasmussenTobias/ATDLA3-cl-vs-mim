@@ -78,7 +78,8 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
     checkpoint_dir = "./checkpoints"
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    method = "lora" if use_lora else "full"
+    method = "lora" if use_lora else "adaptformer" if use_adaptformer else "full"
+
     method_dir = os.path.join(checkpoint_dir, dataset_name, method)
     os.makedirs(method_dir, exist_ok=True)
     
