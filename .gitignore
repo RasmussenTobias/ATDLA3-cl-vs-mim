@@ -1,6 +1,5 @@
 *.DS_Store
 /data
-*.pth
 visualization.ipynb
 __pycache__
 .python-version
