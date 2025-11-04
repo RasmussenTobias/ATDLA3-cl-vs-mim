@@ -4,4 +4,3 @@ visualization.ipynb
 __pycache__
 .python-version
 *.toml
-/checkpoints
