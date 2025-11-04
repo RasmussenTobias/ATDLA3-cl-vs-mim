@@ -69,7 +69,7 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
     mean = dataset_config["mean"]
     std = dataset_config["std"]
     
-    batch_size = 4
+    batch_size = 4 if dataset_name == "flowers102" else 64
     num_epochs = 100
     lr = 5e-5
     weight_decay = 0.05

@@ -1,0 +1,17 @@
+{
+  "dataset": "flowers102",
+  "method": "full",
+  "best_val_acc": 0.8251833740831296,
+  "total_epochs": 54,
+  "max_epochs": 100,
+  "early_stopping_used": true,
+  "patience": 10,
+  "stopped_early": true,
+  "final_train_acc": 0.9601648351648352,
+  "final_val_acc": 0.80440097799511,
+  "config": {
+    "batch_size": 4,
+    "lr": 5e-05,
+    "weight_decay": 0.05
+  }
+}

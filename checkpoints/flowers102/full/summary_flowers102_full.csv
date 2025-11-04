@@ -1,0 +1,11 @@
+Metric,Value
+Dataset,FLOWERS102
+Method,FULL
+Total Epochs,44
+Best Val Accuracy (%),82.52
+Best Epoch,44
+Final Train Accuracy (%),94.00
+Final Val Accuracy (%),82.52
+Final Train Loss,0.2081
+Final Val Loss,0.8387
+Train-Val Gap (%),11.48
