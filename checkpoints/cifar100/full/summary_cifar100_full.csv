@@ -1,11 +1,11 @@
 Metric,Value
 Dataset,CIFAR100
 Method,FULL
-Total Epochs,15
-Best Val Accuracy (%),81.78
-Best Epoch,15
-Final Train Accuracy (%),85.78
-Final Val Accuracy (%),81.78
-Final Train Loss,0.5091
-Final Val Loss,0.6951
-Train-Val Gap (%),4.00
+Total Epochs,11
+Best Val Accuracy (%),81.70
+Best Epoch,11
+Final Train Accuracy (%),82.71
+Final Val Accuracy (%),81.70
+Final Train Loss,0.6134
+Final Val Loss,0.6691
+Train-Val Gap (%),1.01
