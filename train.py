@@ -67,14 +67,22 @@ def train(dataset_name="flowers102", use_lora=False, lora_r=8, lora_alpha=16, lo
     
     batch_size = 4 if dataset_name == "flowers102" else 64
     num_epochs = 100
-    lr = 5e-5
+    lr = 1e-5
     weight_decay = 0.05
     device = "cuda" if torch.cuda.is_available() else "mps"
     
     checkpoint_dir = "./checkpoints"
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    method = "lora" if use_lora else "adaptformer" if use_adaptformer else "bitfit" if use_bitfit else"full"
+    if use_lora:
+        method = "lora"
+    elif use_adaptformer:
+        method = "adaptformer"
+    elif use_bitfit:
+        method = "bitfit"
+    else:
+        method = "full"
+    # method = "lora" if use_lora else "adaptformer" if use_adaptformer else "bitfit" if use_bitfit else"full"
 
     method_dir = os.path.join(checkpoint_dir, dataset_name, method)
     os.makedirs(method_dir, exist_ok=True)

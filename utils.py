@@ -1,17 +1,9 @@
-#!/usr/bin/env python
-# coding: utf-8
-# %%
-
-# %%
-
-
 import os
-import time
 import requests
 import torch
+import numpy as np
 
 
-# %%
 def subsample(dataset, ratio, random=False):
     """
     Get indices of subsampled dataset with given ratio.
@@ -35,8 +27,6 @@ def subsample(dataset, ratio, random=False):
     idxs = [idx for idxs in idxs_sorted.values() for idx in idxs]
     return idxs
 
-
-# %%
 
 
 
@@ -66,17 +56,13 @@ def download(url, path, force=False):
     progress_bar.close()
 
 
-# %%
-
-
-import numpy as np
 
 def restore(xs, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
     mean, std = np.array(mean), np.array(std)
     mean, std = mean.reshape([1, 3, 1, 1]), std.reshape([1, 3, 1, 1])
     return torch.clamp((xs * std) + mean, min=0.0, max=1.0)
 
-# %%
+
 def get_dataset_config(dataset_name):
     """Get dataset-specific configuration"""
     configs = {
